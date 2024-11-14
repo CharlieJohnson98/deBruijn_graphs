@@ -8,9 +8,14 @@ parser$add_argument("-f", "--counts_file", dest="counts_file", required=TRUE,
                     help="File containing k-mer counts in wide format.")
 parser$add_argument("-e", "--exp", dest="exp", required=TRUE,
                     help="Experiment or list of experiments to test (wash prefix; e.g., for 1 experiment: '0w','3w'; for multiple experiments: '0w,1w,3w'.")
+parser$add_argument("-b", "--background_label", dest="background_label", required=TRUE,
+                    help="Set the label that will be used for baseline comparison")
 parser$add_argument("-o", "--output_file", dest="output_file", required=TRUE,
                     help="Name of file to write results to.")
 args <- parser$parse_args()
+
+#parser$add_argument("-b", "--background_label", dest="background_label", required=TRUE,
+#                    help="Set the label that will be used for baseline comparison")
 
 # ----------------------------------
 # code for testing
@@ -23,10 +28,13 @@ args <- parser$parse_args()
 # main
 # ----------------------------------
 counts_file <- args$counts_file
-output_file <- args$output_file
 exp <- args$exp
+background_label <- args$background_label
+output_file <- args$output_file
 
 # fileEncoding='UTF-8-BOM' should strip the BOM marker FEFF that some windows tools add
+bg_label = background_label
+print(counts_file)
 print("Reading in data ...")
 x <- read.delim(counts_file,
               sep=",",
@@ -38,9 +46,9 @@ x <- read.delim(counts_file,
 
 exp_list <- str_split(exp, ',')[[1]]
 cols <- colnames(x)
-design_cols <- c("bg", exp_list)
+design_cols <- c(bg_label, exp_list)
 exp_cols <- cols[grepl(paste(exp_list, collapse = "|"), colnames(x))]
-bg_cols <- cols[grep(paste0("^bg*"), cols)]
+bg_cols <- cols[grep(paste(c("^",bg_label,"*"),collapse=""), cols)]
 count_cols <- c(bg_cols, exp_cols)
 
 print("Constructing design and contrast matrices ...")
@@ -53,7 +61,7 @@ for (i in design_cols){
   d[idx] <- 1
   design_list[[i]] <- d
   # contrast vector
-  if (i != "bg"){
+  if (i != bg_label){
     idx <- grep(i, design_cols)
     c <- c(-1, rep(0, length(design_cols)-1))
     c[idx] <- 1
@@ -67,7 +75,7 @@ print("Design matrix:")
 print(design)
 
 cont.matrix <- do.call(cbind, contrast_list)
-rownames(cont.matrix) <- c("bg", exp_list)
+rownames(cont.matrix) <- c(bg_label, exp_list)
 print("Contrast matrix:")
 print(cont.matrix)
 
@@ -91,7 +99,7 @@ counts <- x[, count_cols]
 
 # keep rows based on string based filters of columns; rows must match all filters
 x <- x %>% select("edge", all_of(exp_cols), all_of(bg_cols))
-
+head(x,n = 5L)
 # ** count threshold args here
 # ** TO DO: add these args
 # for now, default behavior is no CPM-based filtering
@@ -103,10 +111,24 @@ if (length(filter_rows)>0) {
   keepRows <- rep(TRUE, nrow(x))
 }
 
-# keep only rows with this x_min minimum
+# keep only rows with at least one replicate equal to or greater than x_min
+# Charlie: to me this doesnt make sense, why would it matter if the greatest replicate is greater than this number
+# Charlie: Shouldnt we be interested in the smallest value?
+# old code vvv
+# x_min = 8
+# keepMin <- apply(counts, 1, max) >= x_min
+
+
+#count based filtering, currently only works for 3 replicates
 x_min = 0
-keepMin <- apply(counts, 1, max) >= x_min
-# keep only rows with cpm above y_min in at least z_min samples
+r_min = 0
+compMin <- function(m) {sum(m > x_min)}
+sapply(split(count, ceiling(seq_along(count) / 3)),compMin)
+keepMin <- apply(sapply(split(count, ceiling(seq_along(count) / sub_length)),compMin),mean) >= r_min
+length(keepMin)
+length(counts)
+#cpm based filtering
+# keep only rows with cpm (counts per million) above y_min in at least z_min samples
 y_min = 0
 z_min = 0
 keepCpm <- rowSums(cpm(counts) > y_min) >= z_min
@@ -125,7 +147,7 @@ fit <- lmFit(y,design)
 fit2 <- contrasts.fit(fit, cont.matrix)
 fit2 <- eBayes(fit2)
 
-# format results
+# format results, gets all kmers
 out <- topTable(fit2, n=Inf, sort.by='none')
 
 out2 <- cbind(fit2$coef,

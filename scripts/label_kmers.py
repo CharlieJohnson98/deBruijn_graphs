@@ -34,7 +34,10 @@ def main():
 
     t0 = time.time()
     print('Reading in library/bait files ...')
-    lib_kmers = get_library_set(args.lib_file)
+    if args.lib_file:
+        lib_kmers = get_library_set(args.lib_file)
+    else:
+        lib_kmers = []
     
     if args.bait_file:
         comp_kmers = get_oligo_set(args.bait_file)
@@ -56,12 +59,12 @@ def main():
                     else 'library match' if edge in lib_kmers \
                     else 'no match' for edge in df['edge']])
 
-    if args.remove_lib:
+    if args.remove_lib and args.lib_file:
         print('Removing k-mers matching the library static regions ...')
         df = df[df['label'] != 'library match']
-        if args.drop_label_col:
-            print('Dropping label column ...')
-            df = df.drop(['label'], axis=1)
+    if args.drop_label_col:
+        print('Dropping label column ...')
+        df = df.drop(['label'], axis=1)
 
     print('Writing out results ...')
     df.to_csv(args.outfile, index=False)
@@ -75,7 +78,7 @@ if __name__ == "__main__":
     parser.add_argument("--results_file", action="store", required=True,
                         help="(Required) Path to file with experimental k-mer counts/enrichment.")
 
-    parser.add_argument("--lib_file", action="store", required=True,
+    parser.add_argument("--lib_file", action="store", required=False,
                         help="(Required) Path to file with library k-mers.")
 
     parser.add_argument("--bait_file", action="store", required=False,
